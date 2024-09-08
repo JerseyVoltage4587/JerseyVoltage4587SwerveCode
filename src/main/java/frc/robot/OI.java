@@ -11,8 +11,14 @@ import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.JoystickButton;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
-// import frc.robot.commands.SwerveDriveJoysticks;
-
+import frc.robot.commands.Arm.ArmDown;
+import frc.robot.commands.Arm.ArmUp;
+import frc.robot.commands.Climber.ClimberDown;
+import frc.robot.commands.Climber.ClimberUp;
+import frc.robot.commands.Intake.BackwardIntake;
+import frc.robot.commands.Intake.ForwardIntake;
+import frc.robot.commands.Shooter.RunShooter;
+import frc.robot.commands.SwerveDrive.ZeroGyro;
 import frc.robot.subsystems.SwerveSubsystem;
 
 public class OI extends Command {
@@ -64,8 +70,14 @@ public class OI extends Command {
     
     //Robot Commands
 
-    m_Swerve = new SwerveSubsystem(j);
-
+    jLeftTrigger.onTrue(new ZeroGyro());
+    kRightTrigger.whileTrue(new ArmUp());
+    kLeftTrigger.whileTrue(new ArmDown());
+    kButtonX.whileTrue(new ClimberUp());
+    kButtonB.whileTrue(new ClimberDown());
+    kRightBumper.whileTrue(new ForwardIntake());
+    kLeftBumper.whileTrue(new BackwardIntake());
+    kButtonA.whileTrue(new RunShooter());
   }
 
   public static OI getInstance() {

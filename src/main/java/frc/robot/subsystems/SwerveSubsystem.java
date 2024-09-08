@@ -7,7 +7,9 @@ package frc.robot.subsystems;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.ControlModeValue;
+import com.kauailabs.navx.frc.AHRS;
 
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
@@ -16,52 +18,15 @@ import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.Encoder;
 import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.SPI;
 import edu.wpi.first.wpilibj.XboxController;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import frc.robot.Constants;
 import frc.robot.OI;
-
-
-//Module contains a Drive Motor, Turn Motor, Absolute Encoder
-class SwerveModule {
-  
-  private TalonFX driveMotor;
-  private TalonFX turnMotor;
-  private SwerveModuleState currentState;
-  private Encoder driveEncoder;
-  private Encoder turnEncoder;
-  
-  //Constructor
-  public SwerveModule(int driveMotorPort, int turnMotorPort) {
-    System.out.println("SwerveModule constructor");
-    driveMotor = new TalonFX(driveMotorPort);
-    turnMotor = new TalonFX(turnMotorPort);
-    currentState = new SwerveModuleState();
-    driveEncoder = new Encoder(0, 1);
-    turnEncoder = new Encoder(2,3);
-  }
-
-  public SwerveModuleState getState() {
-    return currentState;
-  }
-
-  public void setState(SwerveModuleState desiredState) {
-    currentState = desiredState;
-  }
-
-  public void setSpeed() {
-    DutyCycleOut speedOutput = new DutyCycleOut(currentState.speedMetersPerSecond / Constants.maxSpeed);
-    driveMotor.setControl(speedOutput);
-  }
-
-  public void setAngle() {
-    double angleOutput = (currentState.angle.getDegrees() / 360);
-    turnMotor.setPosition(angleOutput);
-  }
-
-}
+import frc.robot.Constants.RobotConstants;
+import frc.robot.Constants.SwerveConstants;
 
 public class SwerveSubsystem extends SubsystemBase {
   /** Creates a new SwerveSubsystem. */
@@ -69,24 +34,21 @@ public class SwerveSubsystem extends SubsystemBase {
   //List of Swerve Modules
   // double vx, vy, theta;
   static SwerveSubsystem m_Instance = null;
-  CommandXboxController controller;
-  SwerveModule frontLeftModule = new SwerveModule(Constants.frontLeftDriveMotor, Constants.frontLeftTurnMotor);
-  SwerveModule frontRightModule = new SwerveModule(Constants.frontRightDriveMotor, Constants.frontRightTurnMotor);
-  SwerveModule backLeftModule = new SwerveModule(Constants.backLeftDriveMotor, Constants.backLeftTurnMotor);
-  SwerveModule backRightModule = new SwerveModule(Constants.backRightDriveMotor, Constants.backRightTurnMotor);
 
-  //Robot Width & Length in meters
-  double robotWidthMeters = Units.inchesToMeters(Constants.robotWidth);
-  double robotLengthMeters = Units.inchesToMeters(Constants.robotLength);
+  private SwerveModule frontLeftModule;
+  private SwerveModule frontRightModule;
+  private SwerveModule backLeftModule;
+  private SwerveModule backRightModule;
+  private AHRS gyro = new AHRS(SPI.Port.kMXP);
   
   //Position of Swerve Modules relative to center of robot
-  Translation2d frontLeftLocation = new Translation2d(robotLengthMeters / 2, robotWidthMeters / 2);
-  Translation2d frontRightLocation = new Translation2d(robotLengthMeters / 2, -robotWidthMeters / 2);
-  Translation2d backLeftLocation = new Translation2d(-robotLengthMeters / 2, robotWidthMeters / 2);
-  Translation2d backRightLocation = new Translation2d(-robotLengthMeters / 2, -robotWidthMeters / 2);
+  Translation2d frontLeftLocation = new Translation2d(-RobotConstants.robotLengthMeters / 2, RobotConstants.robotWidthMeters / 2);
+  Translation2d frontRightLocation = new Translation2d(RobotConstants.robotLengthMeters / 2, RobotConstants.robotWidthMeters / 2);
+  Translation2d backLeftLocation = new Translation2d(-RobotConstants.robotLengthMeters / 2, -RobotConstants.robotWidthMeters / 2);
+  Translation2d backRightLocation = new Translation2d(RobotConstants.robotLengthMeters / 2, -RobotConstants.robotWidthMeters / 2);
 
   //Kinematics object: ChassisSpeeds -> SwerveModuleStates
-  SwerveDriveKinematics kinematics = new SwerveDriveKinematics(
+  public SwerveDriveKinematics kinematics = new SwerveDriveKinematics(
     frontLeftLocation,
     frontRightLocation,
     backLeftLocation,
@@ -94,73 +56,116 @@ public class SwerveSubsystem extends SubsystemBase {
   );
 
 
-  Joystick m_controller;
-
   //Constructor
-  public SwerveSubsystem(Joystick m_driverController) {
-    // System.out.println("SwerveSystem Constructor");
-    System.out.println(kinematics);
-    m_controller = m_driverController;
+  public SwerveSubsystem() {
+    createModules();
+    new Thread(() -> {
+      try {
+        Thread.sleep(1000);
+        zeroGyro();
+      } catch (Exception e) {
+      }
+    }).start();
+  }
+  
+  private void createModules() {
+    frontLeftModule = new SwerveModule(
+      SwerveConstants.frontLeftDriveMotor,
+      SwerveConstants.frontLeftTurnMotor,
+      SwerveConstants.frontLeftDriveMotorReversed,
+      SwerveConstants.frontLeftTurnMotorReversed,
+      SwerveConstants.frontLeftAbsoluteEncoderPort,
+      SwerveConstants.frontLeftAbsoluteEncoderReversed,
+      SwerveConstants.frontLeftAbsoluteEncoderOffesetRad
+    );
+  
+    frontRightModule = new SwerveModule(
+      SwerveConstants.frontRightDriveMotor,
+      SwerveConstants.frontRightTurnMotor,
+      SwerveConstants.frontRightDriveMotorReversed,
+      SwerveConstants.frontRightTurnMotorReversed,
+      SwerveConstants.frontRightAbsoluteEncoderPort,
+      SwerveConstants.frontRightAbsoluteEncoderReversed,
+      SwerveConstants.frontRightAbsoluteEncoderOffesetRad
+    );
+  
+    backLeftModule = new SwerveModule(
+      SwerveConstants.backLeftDriveMotor,
+      SwerveConstants.backLeftTurnMotor,
+      SwerveConstants.backLeftDriveMotorReversed,
+      SwerveConstants.backLeftTurnMotorReversed,
+      SwerveConstants.backLeftAbsoluteEncoderPort,
+      SwerveConstants.backLeftAbsoluteEncoderReversed,
+      SwerveConstants.backLeftAbsoluteEncoderOffesetRad
+    );
+  
+    backRightModule = new SwerveModule(
+      SwerveConstants.backRightDriveMotor,
+      SwerveConstants.backRightTurnMotor,
+      SwerveConstants.backRightDriveMotorReversed,
+      SwerveConstants.backRightTurnMotorReversed,
+      SwerveConstants.backRightAbsoluteEncoderPort,
+      SwerveConstants.backRightAbsoluteEncoderReversed,
+      SwerveConstants.backRightAbsoluteEncoderOffesetRad
+    );
+    
   }
 
+  public void zeroGyro() {
+    gyro.reset();
+  }
 
-public void setChassisSpeeds(ChassisSpeeds desiredSpeeds) {
-    SwerveModuleState[] newStates = kinematics.toSwerveModuleStates(desiredSpeeds);
+  public double getGyro() {
+    return Math.IEEEremainder(gyro.getAngle(), 360);
+  }
 
-    frontLeftModule.setState(newStates[0]);
-    frontRightModule.setState(newStates[1]);
-    backLeftModule.setState(newStates[2]);
-    backRightModule.setState(newStates[3]);
+  public Rotation2d getGyroToRotation2d() {
+    return Rotation2d.fromDegrees(getGyro());
+  }
 
+  public void zeroModules() {
+    frontLeftModule.zeroMotors();
+    frontRightModule.zeroMotors();
+    backLeftModule.zeroMotors();
+    backRightModule.zeroMotors();
+  }
+
+  public void setModuleStates(SwerveModuleState[] desiredStates) {
+    SwerveDriveKinematics.desaturateWheelSpeeds(desiredStates, RobotConstants.maxSpeed);
+
+    frontLeftModule.setDesiredState(desiredStates[0]);
+    frontRightModule.setDesiredState(desiredStates[1]);
+    backLeftModule.setDesiredState(desiredStates[2]);
+    backRightModule.setDesiredState(desiredStates[3]);
   }
 
   @Override
   public void periodic() {
     // This method will be called once per scheduler run
-
-    ChassisSpeeds newSpeeds = new ChassisSpeeds(
-      m_controller.getRawAxis(0),
-      m_controller.getRawAxis(1),
-      m_controller.getRawAxis(2)
-    );
-
-    setChassisSpeeds(newSpeeds);
-
-    frontLeftModule.setSpeed();
-    frontLeftModule.setAngle();
-    frontRightModule.setSpeed();
-    frontRightModule.setAngle();
-    backLeftModule.setSpeed();
-    backLeftModule.setAngle();
-    backRightModule.setSpeed();
-    backRightModule.setAngle();
-
-    //FrontLeft, FrontRight, BackLeft, BackRight
-    double loggingState[] = {
-      frontLeftModule.getState().angle.getDegrees(), frontLeftModule.getState().speedMetersPerSecond,
-      frontRightModule.getState().angle.getDegrees(), frontRightModule.getState().speedMetersPerSecond,
-      backLeftModule.getState().angle.getDegrees(), backLeftModule.getState().speedMetersPerSecond,
-      backRightModule.getState().angle.getDegrees(), backRightModule.getState().speedMetersPerSecond
-    };
-    
-    //Sending data to the SmartDashboard
-    SmartDashboard.putNumberArray("Swerve Modules States", loggingState);
-
+    SmartDashboard.putNumber("Gyro Degrees", getGyro());
+    SmartDashboard.putNumber("Front Left Offset Rad", frontLeftModule.getAbsoluteEncoderRad());
+    SmartDashboard.putNumber("Front Right Offset Rad", frontRightModule.getAbsoluteEncoderRad());
+    SmartDashboard.putNumber("Back Left Offset Rad", backLeftModule.getAbsoluteEncoderRad());
+    SmartDashboard.putNumber("Back Right Offset Rad", backRightModule.getAbsoluteEncoderRad());
+    SmartDashboard.putNumber("Front Left Motor Rad", frontLeftModule.getTurnPosition());
+    SmartDashboard.putNumber("Front Right Motor Rad", frontRightModule.getTurnPosition());
+    SmartDashboard.putNumber("Back Left Motor Rad", backLeftModule.getTurnPosition());
+    SmartDashboard.putNumber("Back Right Motor Rad", backRightModule.getTurnPosition());
 
   }
 
 
 
   
-  // public static SwerveSubsystem getInstance() {
-  //   if (m_Instance == null) {
-  //     synchronized (SwerveSubsystem.class) {
-  //       if (m_Instance == null) {
-  //         m_Instance = new SwerveSubsystem();
-  //       }
-  //     }
-  //   }
-  //   return m_Instance;
-  // }
+  public static SwerveSubsystem getInstance() {
+    if (m_Instance == null) {
+      synchronized (SwerveSubsystem.class) {
+        if (m_Instance == null) {
+          m_Instance = new SwerveSubsystem();
+        }
+      }
+    }
+    return m_Instance;
+  }
 
 }
